@@ -1,0 +1,27 @@
+# Игнорируем все PDF файлы
+*.pdf
+**/*.pdf
+
+# Игнорируем все PowerPoint файлы  
+*.pptx
+**/*.pptx
+
+# Дополнительно - другие бинарные файлы
+*.docx
+*.xlsx
+*.zip
+*.rar
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# Временные файлы Python
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# Файлы IDE
+.vscode/
+.idea/
