@@ -319,7 +319,7 @@ class ArtificialBasisSolver:
         obj_data = [f"{self.tableau[-1, j]:{col_width}.3f}" for j in range(self.n_total + 1)]
         obj_line = " F    | " + " | ".join(obj_data)
         print(obj_line)
-    
+        
     def solve(self, max_steps=100, verbose=False):
         """Решение задачи методом искусственного базиса"""
         step = 0

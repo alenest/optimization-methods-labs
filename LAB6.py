@@ -8,7 +8,7 @@ def is_integer(x, tol=1e-6):
 
 class BranchAndBoundNode:
     """Узел в дереве ветвей и границ"""
-    def __init__(self, constraints, rhs_values, constraint_types, depth=0, parent=None, branch_var=None, branch_value=None, branch_type=None):
+    def __init__(self, constraints, rhs_values, constraint_types, depth=0, parent=None, branch_var=None, branch_value=None, branch_type=None, branched_vars=None):
         self.constraints = constraints
         self.rhs_values = rhs_values
         self.constraint_types = constraint_types
@@ -17,17 +17,24 @@ class BranchAndBoundNode:
         self.branch_var = branch_var
         self.branch_value = branch_value
         self.branch_type = branch_type
+        self.branched_vars = branched_vars if branched_vars is not None else set()
         self.solution = None
         self.objective_value = None
         self.is_integer = False
         self.is_feasible = True
-        self.is_processed = False
     
     def get_branch_info(self):
         """Информация о ветвлении для этого узла"""
         if self.branch_var is not None:
             return f"x{self.branch_var+1} {self.branch_type} {int(self.branch_value)}"
         return "корневая задача"
+    
+    def get_state_hash(self):
+        """Создает уникальный хэш для состояния задачи"""
+        constraints_str = str([str(c) for c in self.constraints])
+        rhs_str = str(self.rhs_values)
+        types_str = str(self.constraint_types)
+        return hash(constraints_str + rhs_str + types_str)
 
 def solve_with_simplex(obj_coeffs, constraints, rhs_values, constraint_types, is_min=True, max_steps=50):
     """Решает задачу симплекс-методом без вывода таблиц"""
@@ -59,7 +66,6 @@ def solve_with_simplex(obj_coeffs, constraints, rhs_values, constraint_types, is
         
         return solution, objective_value, solver
     except Exception as e:
-        print(f"    Ошибка в симплекс-методе: {e}")
         return None, None, None
 
 class BranchAndBoundSolver:
@@ -76,7 +82,8 @@ class BranchAndBoundSolver:
         self.best_solution = None
         self.best_objective = float('-inf') if not is_min else float('inf')
         self.nodes_explored = 0
-        self.active_nodes = []
+        self.visited_states = set()
+        self.max_depth = len(integer_vars_indices) * 3  # Ограничение глубины
         
     def solve(self, max_nodes=100):
         """Решение задачи методом ветвей и границ"""
@@ -92,24 +99,31 @@ class BranchAndBoundSolver:
             depth=0
         )
         
-        self.active_nodes.append(root_node)
+        root_hash = root_node.get_state_hash()
+        self.visited_states.add(root_hash)
+        
+        stack = [root_node]  # Используем стек для обхода в глубину
         self.nodes_explored = 0
         
         print("Начало решения.")
         print(f"Целочисленные переменные: {[f'x{i+1}' for i in self.integer_vars]}")
         print(f"Тип задачи: {'минимизация' if self.is_min else 'максимизация'}")
+        print(f"Максимальная глубина: {self.max_depth}")
         print()
         
-        while self.active_nodes and self.nodes_explored < max_nodes:
+        while stack and self.nodes_explored < max_nodes:
             # Выбираем узел для обработки (последний добавленный - LIFO)
-            current_node = self.active_nodes.pop()
-            
-            # Помечаем узел как обработанный
-            current_node.is_processed = True
+            current_node = stack.pop()
             self.nodes_explored += 1
             
             print(f"Узел {self.nodes_explored}: {current_node.get_branch_info()}")
             print("-" * 50)
+            
+            # Проверяем глубину
+            if current_node.depth > self.max_depth:
+                print("    ✗ Отсекаем - превышена максимальная глубина ветвления")
+                print()
+                continue
             
             # Решаем задачу симплекс-методом
             solution, objective_value, solver = solve_with_simplex(
@@ -138,8 +152,7 @@ class BranchAndBoundSolver:
             
             # Проверяем целочисленность указанных переменных
             is_all_integer = True
-            branching_var = None
-            max_fraction = 0
+            candidate_vars = []
             
             for var_idx in self.integer_vars:
                 if var_idx < len(solution) and not is_integer(solution[var_idx]):
@@ -147,11 +160,9 @@ class BranchAndBoundSolver:
                     fraction = min(solution[var_idx] - np.floor(solution[var_idx]), 
                                  np.ceil(solution[var_idx]) - solution[var_idx])
                     
-                    # Выбираем переменную с максимальной дробной частью для ветвления
-                    if fraction > max_fraction:
-                        max_fraction = fraction
-                        branching_var = var_idx
-                        branching_value = solution[var_idx]
+                    # Добавляем кандидата для ветвления (только если по этой переменной еще не ветвились)
+                    if var_idx not in current_node.branched_vars:
+                        candidate_vars.append((var_idx, fraction, solution[var_idx]))
             
             current_node.is_integer = is_all_integer
             
@@ -176,13 +187,19 @@ class BranchAndBoundSolver:
                 continue
             
             # ВЕТВЛЕНИЕ: создаем две новые задачи
-            if branching_var is not None:
+            if candidate_vars:
+                # Выбираем переменную с максимальной дробной частью
+                branching_var, max_fraction, branching_value = max(candidate_vars, key=lambda x: x[1])
+                
                 floor_val = np.floor(branching_value)
                 ceil_val = np.ceil(branching_value)
                 
                 print(f"    Ветвление по x{branching_var+1} = {branching_value:.6f}:")
                 print(f"      Задача 1: x{branching_var+1} ≤ {int(floor_val)}")
                 print(f"      Задача 2: x{branching_var+1} ≥ {int(ceil_val)}")
+                
+                # Обновляем множество переменных, по которым уже ветвились
+                new_branched_vars = current_node.branched_vars | {branching_var}
                 
                 # Задача 1: x ≤ floor(value)
                 left_constraints = current_node.constraints + [
@@ -199,8 +216,17 @@ class BranchAndBoundSolver:
                     parent=current_node,
                     branch_var=branching_var,
                     branch_value=floor_val,
-                    branch_type='<='
+                    branch_type='<=',
+                    branched_vars=new_branched_vars
                 )
+                
+                # Проверяем уникальность состояния
+                left_hash = left_node.get_state_hash()
+                if left_hash not in self.visited_states:
+                    self.visited_states.add(left_hash)
+                    stack.append(left_node)
+                else:
+                    print(f"    ⓘ Пропускаем дубликат задачи: x{branching_var+1} ≤ {int(floor_val)}")
                 
                 # Задача 2: x ≥ ceil(value)  
                 right_constraints = current_node.constraints + [
@@ -217,12 +243,19 @@ class BranchAndBoundSolver:
                     parent=current_node,
                     branch_var=branching_var,
                     branch_value=ceil_val,
-                    branch_type='>='
+                    branch_type='>=',
+                    branched_vars=new_branched_vars
                 )
                 
-                # Добавляем новые задачи в стек (LIFO - глубина)
-                self.active_nodes.append(right_node)
-                self.active_nodes.append(left_node)
+                # Проверяем уникальность состояния
+                right_hash = right_node.get_state_hash()
+                if right_hash not in self.visited_states:
+                    self.visited_states.add(right_hash)
+                    stack.append(right_node)
+                else:
+                    print(f"    ⓘ Пропускаем дубликат задачи: x{branching_var+1} ≥ {int(ceil_val)}")
+            else:
+                print("    ✗ Нет переменных для ветвления - все целочисленные переменные уже были зафиксированы")
             
             print()
         
@@ -231,6 +264,7 @@ class BranchAndBoundSolver:
         print("ФИНАЛЬНЫЕ РЕЗУЛЬТАТЫ")
         print("=" * 70)
         print(f"Исследовано узлов: {self.nodes_explored}")
+        print(f"Уникальных состояний: {len(self.visited_states)}")
         
         if self.best_solution is not None:
             print("Найдено оптимальное целочисленное решение:")
