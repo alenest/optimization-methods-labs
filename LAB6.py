@@ -123,17 +123,20 @@ class BranchAndBoundSolver:
         root_hash = root_node.get_state_hash()
         self.visited_states.add(root_hash)
         
-        stack = [root_node]
+        # Используем очередь для обхода в ШИРИНУ (BFS)
+        queue = deque([root_node])
         self.nodes_explored = 0
         
         print("Начало решения.")
         print(f"Целочисленные переменные: {[f'x{i+1}' for i in self.integer_vars]}")
         print(f"Тип задачи: {'минимизация' if self.is_min else 'максимизация'}")
         print(f"Максимальное количество узлов: {max_nodes}")
+        print(f"Стратегия обхода: в ширину (BFS)")
         print()
         
-        while stack and self.nodes_explored < max_nodes:
-            current_node = stack.pop()
+        while queue and self.nodes_explored < max_nodes:
+            # Берем первый узел из очереди (FIFO)
+            current_node = queue.popleft()
             self.nodes_explored += 1
             
             print(f"Узел {self.nodes_explored}: {current_node.get_branch_info()}")
@@ -191,8 +194,8 @@ class BranchAndBoundSolver:
                 continue
             
             # КРИТЕРИЙ ОТСЕЧЕНИЯ 2: Решение хуже текущего лучшего целочисленного
-            if self.best_solution is not None and not self._is_better_solution(objective_value):
-                print(f"    Отсекаем - решение {objective_value:.6f} не лучше текущего лучшего {self.best_objective:.6f}")
+            if self.best_solution is not None and self._is_worse_solution(objective_value):
+                print(f"    Отсекаем - решение {objective_value:.6f} хуже текущего лучшего {self.best_objective:.6f}")
                 print()
                 continue
             
@@ -230,7 +233,7 @@ class BranchAndBoundSolver:
                 left_hash = left_node.get_state_hash()
                 if left_hash not in self.visited_states:
                     self.visited_states.add(left_hash)
-                    stack.append(left_node)
+                    queue.append(left_node)
                 else:
                     print(f"    Пропускаем дубликат задачи: x{branching_var+1} <= {int(floor_val)}")
                 
@@ -256,7 +259,7 @@ class BranchAndBoundSolver:
                 right_hash = right_node.get_state_hash()
                 if right_hash not in self.visited_states:
                     self.visited_states.add(right_hash)
-                    stack.append(right_node)
+                    queue.append(right_node)
                 else:
                     print(f"    Пропускаем дубликат задачи: x{branching_var+1} >= {int(ceil_val)}")
             else:
@@ -308,6 +311,16 @@ class BranchAndBoundSolver:
             return objective_value < self.best_objective
         else:
             return objective_value > self.best_objective
+    
+    def _is_worse_solution(self, objective_value):
+        """Проверяет, хуже ли текущее решение (для отсечения)"""
+        if self.best_solution is None:
+            return False
+        
+        if self.is_min:
+            return objective_value >= self.best_objective
+        else:
+            return objective_value <= self.best_objective
 
 def get_test_problem():
     """Тестовая задача из пятой лабораторной"""
