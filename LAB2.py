@@ -320,16 +320,18 @@ class ArtificialBasisSolver:
         obj_line = " F    | " + " | ".join(obj_data)
         print(obj_line)
     
-    def solve(self, max_steps=100):
+    def solve(self, max_steps=100, verbose=False):  # Добавляем параметр verbose
         """Решение задачи методом искусственного базиса"""
         step = 0
-        print("Начальная симплекс-таблица:")
-        self._print_tableau(step)
+        if verbose:  # Выводим только если verbose=True
+            print("Начальная симплекс-таблица:")
+            self._print_tableau(step)
         
         # Фаза I: Удаление искусственных переменных из базиса
-        if self.artificial_vars: # Удаление искусственных переменных
-            print("\n--- ФАЗА I: Удаление искусственных переменных из базиса ---")
-            step = self._phase1(step, max_steps//2)
+        if self.artificial_vars:
+            if verbose:
+                print("\n--- ФАЗА I: Удаление искусственных переменных из базиса ---")
+            step = self._phase1(step, max_steps//2, verbose)  # Передаем verbose
             
             # Проверяем, остались ли искусственные переменные в базисе
             basis_vars = self._get_basis_vars()
@@ -344,16 +346,17 @@ class ArtificialBasisSolver:
                             raise Exception("Задача не имеет допустимого решения.")
         
         # Фаза II: Оптимизация исходной целевой функции
-        print("\n--- ФАЗА II: Оптимизация исходной целевой функции ---")
-        step = self._phase2(step, max_steps)
+        if verbose:
+            print("\n--- ФАЗА II: Оптимизация исходной целевой функции ---")
+        step = self._phase2(step, max_steps, verbose)  # Передаем verbose
         
         # Получаем решение
         solution = self._get_solution()
         objective_value = self._get_objective_value()
         
         return solution, objective_value, self.history
-    
-    def _phase1(self, start_step, max_steps):
+
+    def _phase1(self, start_step, max_steps, verbose=False):
         """Фаза I: удаление искусственных переменных из базиса"""
         step = start_step
         
@@ -363,11 +366,14 @@ class ArtificialBasisSolver:
             artificial_in_basis = any(art_var in basis_vars for art_var in self.artificial_vars)
             
             if not artificial_in_basis:
-                print(f"Фаза I завершена на шаге {step}: искусственные переменные удалены из базиса")
+                if verbose:
+                    print(f"Фаза I завершена на шаге {step}: искусственные переменные удалены из базиса")
                 break
             
             # Выбираем искусственную переменную для удаления
             pivot_col = None
+            pivot_row = None  # Инициализируем переменную
+            
             for art_var in self.artificial_vars:
                 if art_var in basis_vars:
                     # Ищем ненулевой коэффициент в строке этой искусственной переменной
@@ -375,6 +381,7 @@ class ArtificialBasisSolver:
                     for j in range(self.n_total):
                         if j not in self.artificial_vars and abs(self.tableau[row, j]) > self.tol:
                             pivot_col = j
+                            pivot_row = row  # Устанавливаем pivot_row
                             break
                     if pivot_col is not None:
                         break
@@ -392,37 +399,42 @@ class ArtificialBasisSolver:
                             for j in range(self.n_total):
                                 if abs(self.tableau[row, j]) > self.tol:
                                     pivot_col = j
+                                    pivot_row = row  # Устанавливаем pivot_row
                                     break
                 if pivot_col is None:
                     raise Exception("Не удалось удалить искусственные переменные из базиса")
             
-            # Выбираем разрешающую строку
-            pivot_row = self._select_pivot_row(pivot_col)
+            # Если pivot_row не установлен, находим его через _select_pivot_row
             if pivot_row is None:
-                raise Exception("Задача неограничена")
+                pivot_row = self._select_pivot_row(pivot_col)
+                if pivot_row is None:
+                    raise Exception("Задача неограничена")
             
             # Выполняем операцию поворота
             self._pivot_operation(pivot_row, pivot_col)
             
             step += 1
-            print(f"\nШаг {step} (Фаза I):")
-            self._print_tableau(step)
+            if verbose:
+                print(f"\nШаг {step} (Фаза I):")
+                self._print_tableau(step)
             self.history.append(self.tableau.copy())
         
         return step
-    
-    def _phase2(self, start_step, max_steps): # стандартный симплекс-метод
+
+    def _phase2(self, start_step, max_steps, verbose=False):  # Добавляем verbose
         """Фаза II: оптимизация исходной целевой функции"""
         step = start_step
         
         for _ in range(max_steps):
             if self._is_optimal():
-                print(f"Фаза II завершена на шаге {step}: достигнуто оптимальное решение")
+                if verbose:
+                    print(f"Фаза II завершена на шаге {step}: достигнуто оптимальное решение")
                 break
             
             pivot_col = self._select_pivot_column()
             if pivot_col is None:
-                print(f"Фаза II завершена на шаге {step}: решение оптимально")
+                if verbose:
+                    print(f"Фаза II завершена на шаге {step}: решение оптимально")
                 break
             
             pivot_row = self._select_pivot_row(pivot_col)
@@ -432,8 +444,9 @@ class ArtificialBasisSolver:
             self._pivot_operation(pivot_row, pivot_col)
             
             step += 1
-            print(f"\nШаг {step} (Фаза II):")
-            self._print_tableau(step)
+            if verbose:  # Выводим только если verbose=True
+                print(f"\nШаг {step} (Фаза II):")
+                self._print_tableau(step)
             self.history.append(self.tableau.copy())
         
         return step

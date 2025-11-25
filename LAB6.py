@@ -28,6 +28,39 @@ class BranchAndBoundNode:
             return f"x{self.branch_var+1} {self.branch_type} {self.branch_value}"
         return "корневая задача"
 
+def solve_with_simplex(obj_coeffs, constraints, rhs_values, constraint_types, is_min=True, max_steps=50):
+    """Решает задачу симплекс-методом без вывода таблиц"""
+    try:
+        if not is_min:
+            obj_coeffs_min = [-coeff for coeff in obj_coeffs]
+            solver = ArtificialBasisSolver(
+                obj_coeffs=obj_coeffs_min,
+                constraints=constraints,
+                rhs_values=rhs_values,
+                constraint_types=constraint_types,
+                is_min=True,
+                M=10000
+            )
+            
+            solution, objective_value, history = solver.solve(max_steps=max_steps, verbose=False)
+            objective_value = -objective_value
+        else:
+            solver = ArtificialBasisSolver(
+                obj_coeffs=obj_coeffs,
+                constraints=constraints,
+                rhs_values=rhs_values,
+                constraint_types=constraint_types,
+                is_min=True,
+                M=10000
+            )
+            
+            solution, objective_value, history = solver.solve(max_steps=max_steps, verbose=False)
+        
+        return solution, objective_value, solver
+    except Exception as e:
+        print(f"Ошибка в симплекс-методе: {e}")
+        return None, None, None
+
 class BranchAndBoundSolver:
     """Реализация метода ветвей и границ"""
     
@@ -74,61 +107,61 @@ class BranchAndBoundSolver:
             print("-" * 50)
             
             # Решаем задачу для текущего узла
-            try:
-                solution, objective_value, solver = solve_with_simplex(
-                    self.obj_coeffs,
-                    current_node.constraints,
-                    current_node.rhs_values,
-                    current_node.constraint_types,
-                    self.is_min
-                )
+            solution, objective_value, solver = solve_with_simplex(
+                self.obj_coeffs,
+                current_node.constraints,
+                current_node.rhs_values,
+                current_node.constraint_types,
+                self.is_min
+            )
+            
+            if solution is None or objective_value is None:
+                current_node.is_feasible = False
+                print("✗ Задача недопустима или ошибка решения")
+                print()
+                continue
                 
-                current_node.solution = solution
-                current_node.objective_value = objective_value
-                
-                if solution is None:
-                    current_node.is_feasible = False
-                    print("✗ Задача недопустима")
-                    print()
-                    continue
-                
-                # Выводим решение
-                print("Решение симплекс-методом:")
-                for i, val in enumerate(solution):
-                    print(f"  x{i+1} = {val:.6f}")
-                print(f"Целевая функция: {objective_value:.6f}")
-                
-                # Проверяем целочисленность
-                non_integer_vars = []
-                for var_idx in self.integer_vars:
-                    if not is_integer(solution[var_idx]):
-                        fraction = solution[var_idx] - np.floor(solution[var_idx])
-                        non_integer_vars.append((var_idx, fraction, solution[var_idx]))
-                
-                if non_integer_vars:
-                    print("Нецелые переменные:")
-                    for var_idx, fraction, value in non_integer_vars:
-                        print(f"  x{var_idx+1} = {value:.6f} (дробная часть: {fraction:.6f})")
-                
-                # Проверяем границы
-                if self._is_worse_than_best(objective_value):
-                    print("✗ Отсекаем - решение хуже текущего лучшего")
-                    print()
-                    continue
-                
-                # Если все целые - обновляем лучшее решение
-                if not non_integer_vars:
-                    current_node.is_integer = True
-                    print("✓ Найдено целочисленное решение!")
-                    self._update_best_solution(solution, objective_value)
-                    print(f"Текущее лучшее значение: {self.best_objective:.6f}")
-                    print()
-                    continue
-                
-                # Ветвление
+            current_node.solution = solution
+            current_node.objective_value = objective_value
+            
+            # Выводим решение
+            print("Решение симплекс-методом:")
+            for i, val in enumerate(solution):
+                print(f"  x{i+1} = {val:.6f}")
+            print(f"Целевая функция: {objective_value:.6f}")
+            
+            # Проверяем целочисленность
+            non_integer_vars = []
+            for var_idx in self.integer_vars:
+                if not is_integer(solution[var_idx]):
+                    fraction = solution[var_idx] - np.floor(solution[var_idx])
+                    non_integer_vars.append((var_idx, fraction, solution[var_idx]))
+            
+            if non_integer_vars:
+                print("Нецелые переменные:")
+                for var_idx, fraction, value in non_integer_vars:
+                    print(f"  x{var_idx+1} = {value:.6f} (дробная часть: {fraction:.6f})")
+            
+            # Проверяем границы
+            if self._is_worse_than_best(objective_value):
+                print("✗ Отсекаем - решение хуже текущего лучшего")
+                print()
+                continue
+            
+            # Если все целые - обновляем лучшее решение
+            if not non_integer_vars:
+                current_node.is_integer = True
+                print("✓ Найдено целочисленное решение!")
+                self._update_best_solution(solution, objective_value)
+                print(f"Текущее лучшее значение: {self.best_objective:.6f}")
+                print()
+                continue
+            
+            # Ветвление
+            if non_integer_vars:
                 branch_var, max_fraction, value = max(non_integer_vars, key=lambda x: min(x[1], 1-x[1]))
-                floor_val = np.floor(value)
-                ceil_val = np.ceil(value)
+                floor_val = int(np.floor(value))
+                ceil_val = int(np.ceil(value))
                 
                 print(f"Ветвление по x{branch_var+1}:")
                 print(f"  Создаем подзадачу 1: x{branch_var+1} <= {floor_val}")
@@ -169,12 +202,8 @@ class BranchAndBoundSolver:
                 # Добавляем в очередь
                 queue.append(left_node)
                 queue.append(right_node)
-                print()
-                
-            except Exception as e:
-                print(f"✗ Ошибка при решении: {e}")
-                print()
-                current_node.is_feasible = False
+            
+            print()
         
         # Финальные результаты
         print("=" * 70)
@@ -228,35 +257,6 @@ class BranchAndBoundSolver:
                 if objective_value > self.best_objective:
                     self.best_solution = solution
                     self.best_objective = objective_value
-
-def solve_with_simplex(obj_coeffs, constraints, rhs_values, constraint_types, is_min=True, max_steps=50):
-    """Решает задачу симплекс-методом без вывода таблиц"""
-    if not is_min:
-        obj_coeffs_min = [-coeff for coeff in obj_coeffs]
-        solver = ArtificialBasisSolver(
-            obj_coeffs=obj_coeffs_min,
-            constraints=constraints,
-            rhs_values=rhs_values,
-            constraint_types=constraint_types,
-            is_min=True,
-            M=10000
-        )
-        
-        solution, objective_value, history = solver.solve(max_steps=max_steps)
-        objective_value = -objective_value
-    else:
-        solver = ArtificialBasisSolver(
-            obj_coeffs=obj_coeffs,
-            constraints=constraints,
-            rhs_values=rhs_values,
-            constraint_types=constraint_types,
-            is_min=True,
-            M=10000
-        )
-        
-        solution, objective_value, history = solver.solve(max_steps=max_steps)
-    
-    return solution, objective_value, solver
 
 def get_test_problem():
     """Тестовая задача из пятой лабораторной"""
