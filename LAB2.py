@@ -320,10 +320,10 @@ class ArtificialBasisSolver:
         obj_line = " F    | " + " | ".join(obj_data)
         print(obj_line)
     
-    def solve(self, max_steps=100, verbose=False):  # Добавляем параметр verbose
+    def solve(self, max_steps=100, verbose=False):
         """Решение задачи методом искусственного базиса"""
         step = 0
-        if verbose:  # Выводим только если verbose=True
+        if verbose:
             print("Начальная симплекс-таблица:")
             self._print_tableau(step)
         
@@ -331,7 +331,7 @@ class ArtificialBasisSolver:
         if self.artificial_vars:
             if verbose:
                 print("\n--- ФАЗА I: Удаление искусственных переменных из базиса ---")
-            step = self._phase1(step, max_steps//2, verbose)  # Передаем verbose
+            step = self._phase1(step, max_steps//2, verbose)
             
             # Проверяем, остались ли искусственные переменные в базисе
             basis_vars = self._get_basis_vars()
@@ -348,7 +348,7 @@ class ArtificialBasisSolver:
         # Фаза II: Оптимизация исходной целевой функции
         if verbose:
             print("\n--- ФАЗА II: Оптимизация исходной целевой функции ---")
-        step = self._phase2(step, max_steps, verbose)  # Передаем verbose
+        step = self._phase2(step, max_steps, verbose)
         
         # Получаем решение
         solution = self._get_solution()
