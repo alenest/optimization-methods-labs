@@ -125,6 +125,7 @@ class BranchAndBoundSolver:
         
         # Используем очередь для обхода в ШИРИНУ (BFS)
         queue = deque([root_node])
+        stack = [root_node]
         self.nodes_explored = 0
         
         print("Начало решения.")
@@ -132,11 +133,14 @@ class BranchAndBoundSolver:
         print(f"Тип задачи: {'минимизация' if self.is_min else 'максимизация'}")
         print(f"Максимальное количество узлов: {max_nodes}")
         print(f"Стратегия обхода: в ширину (BFS)")
+        print(f"Максимальное количество узлов: {max_nodes}")
         print()
         
         while queue and self.nodes_explored < max_nodes:
             # Берем первый узел из очереди (FIFO)
             current_node = queue.popleft()
+        while stack and self.nodes_explored < max_nodes:
+            current_node = stack.pop()
             self.nodes_explored += 1
             
             print(f"Узел {self.nodes_explored}: {current_node.get_branch_info()}")
@@ -196,6 +200,8 @@ class BranchAndBoundSolver:
             # КРИТЕРИЙ ОТСЕЧЕНИЯ 2: Решение хуже текущего лучшего целочисленного
             if self.best_solution is not None and self._is_worse_solution(objective_value):
                 print(f"    Отсекаем - решение {objective_value:.6f} хуже текущего лучшего {self.best_objective:.6f}")
+            if self.best_solution is not None and not self._is_better_solution(objective_value):
+                print(f"    Отсекаем - решение {objective_value:.6f} не лучше текущего лучшего {self.best_objective:.6f}")
                 print()
                 continue
             
@@ -311,16 +317,6 @@ class BranchAndBoundSolver:
             return objective_value < self.best_objective
         else:
             return objective_value > self.best_objective
-    
-    def _is_worse_solution(self, objective_value):
-        """Проверяет, хуже ли текущее решение (для отсечения)"""
-        if self.best_solution is None:
-            return False
-        
-        if self.is_min:
-            return objective_value >= self.best_objective
-        else:
-            return objective_value <= self.best_objective
 
 def get_test_problem():
     """Тестовая задача из пятой лабораторной"""
@@ -356,7 +352,7 @@ def print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, in
     print()
 
 def main():
-    """Главная функция"""
+    """Главная функция с выбором способа ввода"""
     print("МЕТОД ВЕТВЕЙ И ГРАНИЦ - РЕШЕНИЕ ЦЕЛОЧИСЛЕННЫХ ЗАДАЧ")
     print()
     
