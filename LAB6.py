@@ -123,9 +123,8 @@ class BranchAndBoundSolver:
         root_hash = root_node.get_state_hash()
         self.visited_states.add(root_hash)
         
-        # Используем очередь для обхода в ШИРИНУ (BFS)
+        # Используем очередь для обхода в ШИРИНУ
         queue = deque([root_node])
-        stack = [root_node]
         self.nodes_explored = 0
         
         print("Начало решения.")
@@ -133,14 +132,11 @@ class BranchAndBoundSolver:
         print(f"Тип задачи: {'минимизация' if self.is_min else 'максимизация'}")
         print(f"Максимальное количество узлов: {max_nodes}")
         print(f"Стратегия обхода: в ширину (BFS)")
-        print(f"Максимальное количество узлов: {max_nodes}")
         print()
         
         while queue and self.nodes_explored < max_nodes:
             # Берем первый узел из очереди (FIFO)
             current_node = queue.popleft()
-        while stack and self.nodes_explored < max_nodes:
-            current_node = stack.pop()
             self.nodes_explored += 1
             
             print(f"Узел {self.nodes_explored}: {current_node.get_branch_info()}")
@@ -200,8 +196,6 @@ class BranchAndBoundSolver:
             # КРИТЕРИЙ ОТСЕЧЕНИЯ 2: Решение хуже текущего лучшего целочисленного
             if self.best_solution is not None and self._is_worse_solution(objective_value):
                 print(f"    Отсекаем - решение {objective_value:.6f} хуже текущего лучшего {self.best_objective:.6f}")
-            if self.best_solution is not None and not self._is_better_solution(objective_value):
-                print(f"    Отсекаем - решение {objective_value:.6f} не лучше текущего лучшего {self.best_objective:.6f}")
                 print()
                 continue
             
@@ -317,7 +311,17 @@ class BranchAndBoundSolver:
             return objective_value < self.best_objective
         else:
             return objective_value > self.best_objective
-
+    
+    def _is_worse_solution(self, objective_value):
+        """Проверяет, хуже ли текущее решение (для отсечения)"""
+        if self.best_solution is None:
+            return False
+        
+        if self.is_min:
+            return objective_value >= self.best_objective
+        else:
+            return objective_value <= self.best_objective
+        
 def get_test_problem():
     """Тестовая задача из пятой лабораторной"""
     obj_coeffs = [5, -6, -1, 3, -8]
@@ -330,6 +334,99 @@ def get_test_problem():
     constraint_types = ['=', '=', '=']
     integer_vars_indices = [2, 3, 4]  # x₃, x₄, x₅
     is_min = False  # Максимизация
+    
+    return obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min
+
+# НОВЫЕ ФУНКЦИИ ДЛЯ ВВОДА ИЗ ФАЙЛА И КОНСОЛИ
+
+def read_problem_from_file(file_path):
+    """
+    Чтение задачи из файла
+    """
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+    
+    if len(lines) < 4:
+        raise ValueError("Файл должен содержать как минимум 4 строки")
+    
+    # Читаем тип оптимизации
+    optimization_type = lines[0].lower()
+    is_min = optimization_type == 'min'
+    
+    # Читаем целевую функцию
+    obj_coeffs = list(map(float, lines[1].split()))
+    
+    # Читаем целочисленные переменные
+    integer_vars = list(map(int, lines[2].split()))
+    integer_vars_indices = [idx - 1 for idx in integer_vars]
+    
+    # Читаем ограничения
+    constraints = []
+    rhs_values = []
+    constraint_types = []
+    
+    for i in range(3, len(lines)):
+        parts = lines[i].split()
+        if len(parts) < len(obj_coeffs) + 2:
+            raise ValueError(f"Недостаточно данных в ограничении {i-2}")
+        
+        coeffs = list(map(float, parts[:len(obj_coeffs)]))
+        const_type = parts[len(obj_coeffs)]
+        rhs = float(parts[len(obj_coeffs) + 1])
+        
+        constraints.append(coeffs)
+        constraint_types.append(const_type)
+        rhs_values.append(rhs)
+    
+    return obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min
+
+def input_problem_from_console():
+    """Ввод задачи с консоли"""
+    print("\nВВОД ДАННЫХ ЗАДАЧИ:")
+    print("=" * 50)
+    
+    # Тип оптимизации
+    optimization = input("Тип оптимизации (min/max): ").strip().lower()
+    is_min = optimization == 'min'
+    
+    # Количество переменных
+    n = int(input("Количество переменных: "))
+    
+    # Целевая функция
+    print("Введите коэффициенты целевой функции (через пробел):")
+    obj_coeffs = list(map(float, input().split()))
+    
+    # Целочисленные переменные
+    print("Введите номера целочисленных переменных (через пробел, например: 1 3 5):")
+    integer_vars = list(map(int, input().split()))
+    integer_vars_indices = [idx - 1 for idx in integer_vars]
+    
+    # Количество ограничений
+    m = int(input("Количество ограничений: "))
+    
+    # Ограничения
+    constraints = []
+    rhs_values = []
+    constraint_types = []
+    
+    print("Введите ограничения в формате: коэффициенты тип правая_часть")
+    print("Пример: 1 2 3 <= 10")
+    
+    for i in range(m):
+        print(f"Ограничение {i+1}:")
+        parts = input().split()
+        
+        if len(parts) < n + 2:
+            print(f"Ошибка: ожидается {n} коэффициентов, тип ограничения и правая часть")
+            continue
+            
+        coeffs = list(map(float, parts[:n]))
+        const_type = parts[n]
+        rhs = float(parts[n + 1])
+        
+        constraints.append(coeffs)
+        constraint_types.append(const_type)
+        rhs_values.append(rhs)
     
     return obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min
 
@@ -351,28 +448,108 @@ def print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, in
     print(f"Целочисленные переменные: {int_vars_str}")
     print()
 
+
+
 def main():
     """Главная функция с выбором способа ввода"""
     print("МЕТОД ВЕТВЕЙ И ГРАНИЦ - РЕШЕНИЕ ЦЕЛОЧИСЛЕННЫХ ЗАДАЧ")
     print()
     
-    # Тестовая задача
-    obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min = get_test_problem()
-    
-    print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min)
-    
-    # Создаем решатель
-    solver = BranchAndBoundSolver(
-        obj_coeffs=obj_coeffs,
-        constraints=constraints,
-        rhs_values=rhs_values,
-        constraint_types=constraint_types,
-        integer_vars_indices=integer_vars_indices,
-        is_min=is_min
-    )
-    
-    # Решаем задачу
-    solution, objective_value = solver.solve(max_nodes=100)
+    while True:
+        print("\nВыберите способ ввода данных:")
+        print("1. Решить тестовую задачу")
+        print("2. Ввести данные с консоли")
+        print("3. Загрузить из файла")
+        print("4. Выход")
+        
+        choice = input("Ваш выбор (1-4): ").strip()
+        
+        if choice == '1':
+            # Тестовая задача (не трогаем!)
+            print("\n" + "="*50)
+            print("РЕШЕНИЕ ТЕСТОВОЙ ЗАДАЧИ")
+            print("="*50)
+            
+            obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min = get_test_problem()
+            print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min)
+            
+            # Создаем решатель
+            solver = BranchAndBoundSolver(
+                obj_coeffs=obj_coeffs,
+                constraints=constraints,
+                rhs_values=rhs_values,
+                constraint_types=constraint_types,
+                integer_vars_indices=integer_vars_indices,
+                is_min=is_min
+            )
+            
+            # Решаем задачу
+            solution, objective_value = solver.solve(max_nodes=100)
+            
+        elif choice == '2':
+            # Ввод с консоли
+            print("\n" + "="*50)
+            print("ВВОД ДАННЫХ С КОНСОЛИ")
+            print("="*50)
+            
+            try:
+                obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min = input_problem_from_console()
+                print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min)
+                
+                # Создаем решатель
+                solver = BranchAndBoundSolver(
+                    obj_coeffs=obj_coeffs,
+                    constraints=constraints,
+                    rhs_values=rhs_values,
+                    constraint_types=constraint_types,
+                    integer_vars_indices=integer_vars_indices,
+                    is_min=is_min
+                )
+                
+                # Решаем задачу
+                solution, objective_value = solver.solve(max_nodes=100)
+                
+            except Exception as e:
+                print(f"Ошибка при вводе данных: {e}")
+                continue
+                
+        elif choice == '3':
+            # Загрузка из файла
+            print("\n" + "="*50)
+            print("ЗАГРУЗКА ИЗ ФАЙЛА")
+            print("="*50)
+            
+            try:
+                file_path = input("Введите путь к файлу: ").strip()
+                obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min = read_problem_from_file(file_path)
+                print_problem_info(obj_coeffs, constraints, rhs_values, constraint_types, integer_vars_indices, is_min)
+                
+                # Создаем решатель
+                solver = BranchAndBoundSolver(
+                    obj_coeffs=obj_coeffs,
+                    constraints=constraints,
+                    rhs_values=rhs_values,
+                    constraint_types=constraint_types,
+                    integer_vars_indices=integer_vars_indices,
+                    is_min=is_min
+                )
+                
+                # Решаем задачу
+                solution, objective_value = solver.solve(max_nodes=100)
+                
+            except FileNotFoundError:
+                print("Ошибка: Файл не найден!")
+                continue
+            except Exception as e:
+                print(f"Ошибка при решении задачи: {e}")
+                continue
+                
+        elif choice == '4':
+            print("Выход из программы.")
+            break
+        else:
+            print("Неверный выбор. Попробуйте снова.")
+            continue
 
 if __name__ == "__main__":
     main()
