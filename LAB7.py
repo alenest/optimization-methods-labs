@@ -520,3 +520,168 @@ print(f"  Разница:        {optimal_cost1 - 1870:.2f}")
 
 print("\nВариант 2:")
 print(f"  Наше решение:   {cost2:.2f}")
+
+# Вариант 3
+print("\n" + "="*60)
+print("ВАРИАНТ 3")
+print("=" * 60)
+
+# Данные варианта 3
+costs3 = [
+    [5, 4, 3, 2],
+    [2, 3, 5, 6],
+    [3, 2, 4, 3],
+    [4, 1, 2, 4]
+]
+supply3 = [120, 60, 80, 140]
+demand3 = [100, 140, 100, 60]
+
+problem3 = TransportProblem(costs3, supply3, demand3)
+
+# Строим начальный план для варианта 3 методом наименьшей стоимости
+print("\nСтроим начальный план для варианта 3 методом наименьшей стоимости...")
+plan3 = problem3.minimal_cost_method()
+print("Начальный план:")
+print(plan3)
+
+cost3 = problem3.calculate_cost(plan3)
+print(f"Стоимость начального плана: {cost3:.2f}")
+
+# Улучшаем план
+print(f"\n{'='*60}")
+print("ЭТАП II: Улучшение опорного плана методом потенциалов")
+
+# Вычисляем потенциалы
+u, v = problem3.get_potentials(plan3)
+print(f"\nПотенциалы: u = {u}, v = {v}")
+
+# Проверяем оценки свободных клеток
+print("\nПроверяем оценки свободных клеток:")
+positive_cells = []
+for i in range(problem3.m):
+    for j in range(problem3.n):
+        if plan3[i, j] < 1e-10:  # Свободная клетка
+            delta = u[i] + v[j] - problem3.costs[i, j]
+            if delta > 1e-10:
+                positive_cells.append((delta, i, j))
+                print(f"  ({i+1},{j+1}): {u[i]:.1f} + {v[j]:.1f} - {problem3.costs[i,j]:.1f} = {delta:.2f} > 0")
+
+if positive_cells:
+    # Находим максимальную оценку
+    max_delta, best_i, best_j = max(positive_cells, key=lambda x: x[0])
+    print(f"\nМаксимальная оценка: Δ{best_i+1}{best_j+1} = {max_delta:.2f}")
+    print(f"Выбираем клетку ({best_i+1},{best_j+1})")
+    
+    # Находим цикл для этой клетки
+    print(f"\nИщем цикл для клетки ({best_i+1},{best_j+1})...")
+    
+    # Для нахождения цикла воспользуемся BFS подходом
+    from collections import deque
+    
+    # Создаем список базисных клеток
+    occupied = [(i, j) for i in range(problem3.m) for j in range(problem3.n) 
+               if plan3[i, j] > 1e-10]
+    occupied.append((best_i, best_j))
+    
+    # BFS для поиска цикла
+    queue = deque()
+    queue.append((best_i, best_j, [(best_i, best_j)], 'row'))
+    
+    cycle = None
+    while queue and not cycle:
+        i, j, path, direction = queue.popleft()
+        
+        # Если вернулись в начало и путь длиной > 1
+        if len(path) > 3 and (i, j) == (best_i, best_j):
+            cycle = path
+            break
+        
+        if direction == 'row':
+            # Ищем в строке другие занятые клетки
+            for col in range(problem3.n):
+                if col != j and (i, col) in occupied:
+                    if (i, col) not in path or (i, col) == (best_i, best_j):
+                        queue.append((i, col, path + [(i, col)], 'col'))
+        else:  # direction == 'col'
+            # Ищем в столбце другие занятые клетки
+            for row in range(problem3.m):
+                if row != i and (row, j) in occupied:
+                    if (row, j) not in path or (row, j) == (best_i, best_j):
+                        queue.append((row, j, path + [(row, j)], 'row'))
+    
+    if cycle:
+        print(f"Найден цикл: {[(i+1, j+1) for i, j in cycle]}")
+        
+        # Находим минимальную поставку в отрицательных вершинах
+        min_amount = float('inf')
+        for idx in range(1, len(cycle), 2):
+            i, j = cycle[idx]
+            if plan3[i, j] < min_amount:
+                min_amount = plan3[i, j]
+        
+        print(f"Минимальная поставка в отрицательных вершинах: {min_amount}")
+        
+        # Перераспределяем
+        new_plan = plan3.copy()
+        for idx, (i, j) in enumerate(cycle):
+            if idx == 0:  # Начальная клетка (+)
+                new_plan[i, j] += min_amount
+            elif idx % 2 == 0:  # Положительные вершины
+                new_plan[i, j] += min_amount
+            else:  # Отрицательные вершины
+                new_plan[i, j] -= min_amount
+        
+        # Убираем нули
+        new_plan[new_plan < 1e-10] = 0
+        
+        print(f"\nНовый план после перераспределения:")
+        print(new_plan)
+        
+        new_cost = problem3.calculate_cost(new_plan)
+        print(f"Стоимость нового плана: {new_cost:.2f}")
+        print(f"Улучшение: {cost3 - new_cost:.2f}")
+        
+        plan3 = new_plan
+        cost3 = new_cost
+        
+        # Проверяем оптимальность
+        u, v = problem3.get_potentials(plan3)
+        is_optimal = True
+        for i in range(problem3.m):
+            for j in range(problem3.n):
+                if plan3[i, j] < 1e-10:
+                    delta = u[i] + v[j] - problem3.costs[i, j]
+                    if delta > 1e-10:
+                        is_optimal = False
+                        break
+        
+        if is_optimal:
+            print("План оптимален.")
+        else:
+            print("План не оптимален, требуется дальнейшее улучшение.")
+    else:
+        print("Не удалось найти цикл.")
+else:
+    print("Все оценки свободных клеток ≤ 0. Начальный план оптимален.")
+
+print(f"\n{'='*60}")
+print("АНАЛИЗ ОПТИМАЛЬНОГО ПЛАНА ДЛЯ ВАРИАНТА 3")
+
+total_shipped = 0
+for i in range(problem3.m):
+    for j in range(problem3.n):
+        if plan3[i, j] > 1e-10:
+            amount = plan3[i, j]
+            print(f"Из поставщика A{i+1} → потребителю B{j+1}: {amount:.1f} ед.")
+            total_shipped += amount
+
+print(f"\nВсего перевезено: {total_shipped:.1f} единиц")
+print(f"Общая минимальная стоимость: {cost3:.2f}")
+
+print("\n" + "="*60)
+print("СВОДКА ПО ВСЕМ ВАРИАНТАМ")
+print("=" * 60)
+print(f"Вариант 1: минимальная стоимость = {optimal_cost1:.2f}")
+print(f"Вариант 2: минимальная стоимость = {cost2:.2f}")
+print(f"Вариант 3: минимальная стоимость = {cost3:.2f}")
+print("\n" + "="*60)
