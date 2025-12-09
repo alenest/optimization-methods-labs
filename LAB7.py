@@ -2,45 +2,51 @@ import numpy as np
 
 class TransportProblem:
     def __init__(self, costs, supply, demand):
-        """
-        Абстрактный решатель транспортной задачи
-        Реализует алгоритмы как в онлайн-решателе
-        """
-        self.costs = np.array(costs, dtype=float)
-        self.supply = np.array(supply, dtype=float)
-        self.demand = np.array(demand, dtype=float)
-        self.m, self.n = self.costs.shape
+        """Абстрактный решатель транспортной задачи"""
+        # Сохраняем исходные данные
+        self.original_costs = np.array(costs, dtype=float)
+        self.original_supply = np.array(supply, dtype=float)
+        self.original_demand = np.array(demand, dtype=float)
         
-        # Проверка баланса
-        self._check_balance()
+        # Приводим к закрытой модели
+        self._make_closed_model()
     
-    def _check_balance(self):
-        """Проверка и приведение к закрытой модели"""
+    def _make_closed_model(self):
+        """Приведение задачи к закрытой модели"""
+        self.costs = self.original_costs.copy()
+        self.supply = self.original_supply.copy()
+        self.demand = self.original_demand.copy()
+        
+        # Проверяем баланс
         total_supply = np.sum(self.supply)
         total_demand = np.sum(self.demand)
         
         if abs(total_supply - total_demand) > 1e-10:
             if total_supply > total_demand:
+                # Добавляем фиктивного потребителя
                 self.demand = np.append(self.demand, total_supply - total_demand)
-                self.costs = np.column_stack([self.costs, np.zeros(self.m)])
+                self.costs = np.column_stack([self.costs, np.zeros(self.costs.shape[0])])
             else:
+                # Добавляем фиктивного поставщика
                 self.supply = np.append(self.supply, total_demand - total_supply)
-                self.costs = np.row_stack([self.costs, np.zeros(self.n)])
-            
-            self.m, self.n = self.costs.shape
+                self.costs = np.row_stack([self.costs, np.zeros(self.costs.shape[1])])
+        
+        # Обновляем размеры
+        self.m = len(self.supply)
+        self.n = len(self.demand)
     
     def northwest_corner(self):
-        """Метод северо-западного угла (для сравнения)"""
+        """Метод северо-западного угла"""
         plan = np.zeros((self.m, self.n))
         supply = self.supply.copy()
         demand = self.demand.copy()
         
         i, j = 0, 0
         while i < self.m and j < self.n:
-            if supply[i] < 1e-10:
+            if supply[i] <= 1e-10:
                 i += 1
                 continue
-            if demand[j] < 1e-10:
+            if demand[j] <= 1e-10:
                 j += 1
                 continue
             
@@ -49,86 +55,49 @@ class TransportProblem:
             supply[i] -= amount
             demand[j] -= amount
             
-            if supply[i] < 1e-10:
+            if supply[i] <= 1e-10:
                 i += 1
-            if demand[j] < 1e-10:
+            if demand[j] <= 1e-10:
                 j += 1
         
         return plan
     
     def minimal_cost_method(self):
-        """
-        Метод минимальной стоимости ТОЧНО как в онлайн-решателе
-        Алгоритм из онлайн-решения:
-        1. Найти минимальную стоимость в матрице
-        2. Распределить min(запас, потребность)
-        3. Исключить строку или столбец
-        4. Повторять пока все не распределено
-        """
+        """Метод минимального элемента (как в онлайн-решателе)"""
         plan = np.zeros((self.m, self.n))
         supply = self.supply.copy()
         demand = self.demand.copy()
         
-        # Создаем рабочую копию матрицы стоимостей
-        work_costs = self.costs.copy()
-        
-        # Маски для исключенных строк и столбцов
-        excluded_rows = np.zeros(self.m, dtype=bool)
-        excluded_cols = np.zeros(self.n, dtype=bool)
-        
-        while True:
-            # Находим минимальную стоимость среди неисключенных
-            min_val = np.inf
+        # Пока есть нераспределенные запасы или потребности
+        while np.sum(supply) > 1e-10 and np.sum(demand) > 1e-10:
+            # Находим минимальную стоимость среди доступных клеток
+            min_cost = float('inf')
             min_i, min_j = -1, -1
             
             for i in range(self.m):
-                if excluded_rows[i]:
+                if supply[i] <= 1e-10:
                     continue
                 for j in range(self.n):
-                    if excluded_cols[j]:
+                    if demand[j] <= 1e-10:
                         continue
-                    if work_costs[i, j] < min_val:
-                        min_val = work_costs[i, j]
+                    if self.costs[i, j] < min_cost:
+                        min_cost = self.costs[i, j]
                         min_i, min_j = i, j
             
-            # Если не нашли или все распределено
-            if min_i == -1 or (supply[min_i] < 1e-10 and demand[min_j] < 1e-10):
-                break
-            
-            # Распределяем
+            # Распределяем минимальный возможный объем
             amount = min(supply[min_i], demand[min_j])
             plan[min_i, min_j] = amount
             supply[min_i] -= amount
             demand[min_j] -= amount
-            
-            # Исключаем строку/столбец как в онлайн-решении
-            if abs(supply[min_i]) < 1e-10 and abs(demand[min_j]) < 1e-10:
-                # Исключаем и строку, и столбец
-                excluded_rows[min_i] = True
-                excluded_cols[min_j] = True
-            elif abs(supply[min_i]) < 1e-10:
-                # Исключаем только строку
-                excluded_rows[min_i] = True
-            elif abs(demand[min_j]) < 1e-10:
-                # Исключаем только столбец
-                excluded_cols[min_j] = True
-            
-            # Помечаем исключенные клетки очень большим числом
-            for i in range(self.m):
-                if excluded_rows[i]:
-                    work_costs[i, :] = 1e10
-            for j in range(self.n):
-                if excluded_cols[j]:
-                    work_costs[:, j] = 1e10
         
         return plan
     
+    def calculate_cost(self, plan):
+        """Вычисление стоимости плана"""
+        return np.sum(plan * self.costs)
+    
     def get_potentials(self, plan):
-        """
-        Вычисление потенциалов ТОЧНО как в онлайн-решателе
-        u[i] + v[j] = c[i][j] для базисных клеток
-        Начинаем с u[0] = 0
-        """
+        """Вычисление потенциалов u и v"""
         u = np.full(self.m, np.nan)
         v = np.full(self.n, np.nan)
         
@@ -146,14 +115,12 @@ class TransportProblem:
             return u, v
         
         # Как в онлайн-решателе: полагаем u[0] = 0
-        # Но если start_i не 0, то все равно начинаем с u[start_i] = 0
-        u[start_i] = 0
+        # Но если первая базисная клетка не в первой строке, все равно начинаем с u[0]
+        u[0] = 0
         
-        # Итерационно вычисляем все потенциалы
+        # Итеративно вычисляем все потенциалы
         changed = True
-        iteration = 0
-        while changed and iteration < 100:
-            iteration += 1
+        while changed:
             changed = False
             
             # Вычисляем v на основе известных u
@@ -175,121 +142,104 @@ class TransportProblem:
         return u, v
     
     def find_improvement_cycle(self, plan, start_i, start_j):
-        """
-        Находит цикл улучшения для свободной клетки (start_i, start_j)
-        Возвращает список клеток в порядке: [+, -, +, -, ...]
-        """
-        # Временная метка для стартовой клетки
+        """Поиск цикла для улучшения плана"""
+        # Создаем расширенный план с исследуемой клеткой
         temp_plan = plan.copy()
-        temp_plan[start_i, start_j] = 0.001  # Временно помечаем
+        temp_plan[start_i, start_j] = 1
         
-        # Рекурсивный поиск цикла
-        def dfs(i, j, path, from_row):
-            # Если вернулись в начало
+        # Используем стек для DFS
+        stack = [(start_i, start_j, [(start_i, start_j)], True)]  # (i, j, path, move_by_row)
+        
+        while stack:
+            i, j, path, move_by_row = stack.pop()
+            
+            # Если вернулись в начало и путь длинный
             if len(path) > 3 and i == start_i and j == start_j:
                 return path
             
-            if from_row:
-                # Ищем в столбце
-                for next_i in range(self.m):
-                    if next_i == i:
+            if move_by_row:
+                # Ищем в строке i другие базисные клетки
+                for col in range(self.n):
+                    if col == j:
                         continue
-                    if temp_plan[next_i, j] > 1e-10:
-                        if (next_i, j) not in path or (next_i == start_i and j == start_j):
-                            result = dfs(next_i, j, path + [(next_i, j)], False)
-                            if result:
-                                return result
+                    if temp_plan[i, col] > 1e-10 or (i == start_i and col == start_j):
+                        if (i, col) not in path[:-1]:  # Не посещали, кроме как начальную в конце
+                            stack.append((i, col, path + [(i, col)], False))
             else:
-                # Ищем в строке
-                for next_j in range(self.n):
-                    if next_j == j:
+                # Ищем в столбце j другие базисные клетки
+                for row in range(self.m):
+                    if row == i:
                         continue
-                    if temp_plan[i, next_j] > 1e-10:
-                        if (i, next_j) not in path or (i == start_i and next_j == start_j):
-                            result = dfs(i, next_j, path + [(i, next_j)], True)
-                            if result:
-                                return result
-            
-            return None
+                    if temp_plan[row, j] > 1e-10 or (row == start_i and j == start_j):
+                        if (row, j) not in path[:-1]:
+                            stack.append((row, j, path + [(row, j)], True))
         
-        # Начинаем поиск
-        cycle = dfs(start_i, start_j, [(start_i, start_j)], True)
-        return cycle
+        return None
     
-    def improve_with_potentials(self, plan):
-        """
-        Улучшение плана методом потенциалов
-        Возвращает новый улучшенный план и флаг улучшения
-        """
-        # 1. Вычисляем потенциалы
+    def improve_plan(self, plan):
+        """Улучшение плана методом потенциалов"""
         u, v = self.get_potentials(plan)
         
-        # 2. Ищем клетку с максимальной положительной оценкой
-        best_delta = -np.inf
+        # Находим свободную клетку с максимальной положительной оценкой
+        max_delta = -float('inf')
         best_i, best_j = -1, -1
         
         for i in range(self.m):
             for j in range(self.n):
-                if plan[i, j] < 1e-10:  # Свободная клетка
+                if plan[i, j] <= 1e-10:  # Свободная клетка
                     delta = u[i] + v[j] - self.costs[i, j]
-                    if delta > best_delta:
-                        best_delta = delta
+                    if delta > max_delta:
+                        max_delta = delta
                         best_i, best_j = i, j
         
         # Если нет положительных оценок - план оптимален
-        if best_delta < 1e-10:
+        if max_delta <= 1e-10:
             return plan, False
         
-        # 3. Находим цикл для этой клетки
+        # Находим цикл для этой клетки
         cycle = self.find_improvement_cycle(plan, best_i, best_j)
         if cycle is None:
             return plan, False
         
-        # 4. Находим минимальное значение в минусовых клетках
-        min_amount = np.inf
+        # Находим минимальное значение в минусовых клетках
+        min_amount = float('inf')
         for idx in range(1, len(cycle), 2):  # Минусовые клетки (нечетные индексы)
             i, j = cycle[idx]
             if plan[i, j] < min_amount:
                 min_amount = plan[i, j]
         
-        if min_amount < 1e-10:
-            return plan, False
-        
-        # 5. Перераспределяем
+        # Перераспределяем
         new_plan = plan.copy()
         for idx, (i, j) in enumerate(cycle):
-            if idx % 2 == 0:  # Плюсовые клетки
+            if idx % 2 == 0:  # Плюсовые клетки (четные индексы)
                 new_plan[i, j] += min_amount
-            else:  # Минусовые клетки
+            else:  # Минусовые клетки (нечетные индексы)
                 new_plan[i, j] -= min_amount
         
-        # Очищаем очень маленькие значения
+        # Очищаем нули
         new_plan[new_plan < 1e-10] = 0
         
         return new_plan, True
     
     def solve(self, method='minimal_cost'):
-        """
-        Решение транспортной задачи
-        method: 'northwest' или 'minimal_cost'
-        """
+        """Решение транспортной задачи"""
         # 1. Построение начального плана
         if method == 'northwest':
             plan = self.northwest_corner()
-        else:
+        else:  # minimal_cost
             plan = self.minimal_cost_method()
         
-        initial_cost = np.sum(plan * self.costs)
+        initial_cost = self.calculate_cost(plan)
         
-        # 2. Улучшение плана методом потенциалов
+        # 2. Улучшение плана
         improved = True
         iterations = 0
         
-        while improved and iterations < 50:
+        while improved and iterations < 100:
             iterations += 1
-            plan, improved = self.improve_with_potentials(plan)
+            plan, improved = self.improve_plan(plan)
         
-        final_cost = np.sum(plan * self.costs)
+        final_cost = self.calculate_cost(plan)
         
         return {
             'plan': plan,
@@ -299,100 +249,111 @@ class TransportProblem:
         }
 
 
-# Тестирование на трех вариантах
-def test_all_variants():
-    print("ТЕСТИРОВАНИЕ ТРАНСПОРТНОЙ ЗАДАЧИ")
-    print("=" * 60)
+# Функция для вывода результата
+def print_result(variant_num, costs, supply, demand, expected, method='minimal_cost'):
+    """Выводит результат решения для одного варианта"""
+    print(f"\n{'='*60}")
+    print(f"ВАРИАНТ {variant_num}")
+    print(f"Ожидаемый результат: {expected}")
+    print('='*60)
     
-    # Вариант 1 (ожидаемый результат: 1870)
-    print("\nВАРИАНТ 1 (ожидается: 1870)")
-    print("-" * 40)
+    problem = TransportProblem(costs, supply, demand)
+    result = problem.solve(method)
     
-    costs1 = [
-        [9, 5, 10, 7],
-        [11, 8, 5, 6],
-        [7, 6, 5, 4],
-        [6, 4, 3, 2]
-    ]
-    supply1 = [70, 80, 90, 110]
-    demand1 = [150, 40, 110, 50]
+    print(f"Метод: {method}")
+    print(f"Начальная стоимость: {result['initial_cost']:.2f}")
+    print(f"Конечная стоимость:  {result['final_cost']:.2f}")
+    print(f"Итераций улучшения:  {result['iterations']}")
     
-    tp1 = TransportProblem(costs1, supply1, demand1)
-    
-    # Тест метода минимальной стоимости
-    result1 = tp1.solve('minimal_cost')
-    print(f"Метод минимальной стоимости:")
-    print(f"  Начальная стоимость: {result1['initial_cost']:.2f}")
-    print(f"  Конечная стоимость:  {result1['final_cost']:.2f}")
-    print(f"  Итераций улучшения:  {result1['iterations']}")
-    print(f"  Совпадение с онлайн: {'✓' if abs(result1['final_cost'] - 1870) < 0.01 else '✗'}")
-    
-    # Вариант 2 (ожидаемый результат: 340)
-    print("\nВАРИАНТ 2 (ожидается: 340)")
-    print("-" * 40)
-    
-    costs2 = [
-        [5, 3, 4, 6, 4],
-        [3, 4, 10, 5, 7],
-        [4, 6, 9, 3, 4]
-    ]
-    supply2 = [40, 20, 40]
-    demand2 = [25, 10, 20, 30, 15]
-    
-    tp2 = TransportProblem(costs2, supply2, demand2)
-    
-    result2 = tp2.solve('minimal_cost')
-    print(f"Метод минимальной стоимости:")
-    print(f"  Начальная стоимость: {result2['initial_cost']:.2f}")
-    print(f"  Конечная стоимость:  {result2['final_cost']:.2f}")
-    print(f"  Итераций улучшения:  {result2['iterations']}")
-    print(f"  Совпадение с онлайн: {'✓' if abs(result2['final_cost'] - 340) < 0.01 else '✗'}")
-    
-    # Вариант 3 (ожидаемый результат: 800)
-    print("\nВАРИАНТ 3 (ожидается: 800)")
-    print("-" * 40)
-    
-    costs3 = [
-        [5, 4, 3, 2],
-        [2, 3, 5, 6],
-        [3, 2, 4, 3],
-        [4, 1, 2, 4]
-    ]
-    supply3 = [120, 60, 80, 140]
-    demand3 = [100, 140, 100, 60]
-    
-    tp3 = TransportProblem(costs3, supply3, demand3)
-    
-    result3 = tp3.solve('minimal_cost')
-    print(f"Метод минимальной стоимости:")
-    print(f"  Начальная стоимость: {result3['initial_cost']:.2f}")
-    print(f"  Конечная стоимость:  {result3['final_cost']:.2f}")
-    print(f"  Итераций улучшения:  {result3['iterations']}")
-    print(f"  Совпадение с онлайн: {'✓' if abs(result3['final_cost'] - 800) < 0.01 else '✗'}")
-    
-    # Итоги
-    print("\n" + "=" * 60)
-    print("ИТОГИ:")
-    print("-" * 60)
-    
-    successes = 0
-    if abs(result1['final_cost'] - 1870) < 0.01:
-        successes += 1
-    if abs(result2['final_cost'] - 340) < 0.01:
-        successes += 1
-    if abs(result3['final_cost'] - 800) < 0.01:
-        successes += 1
-    
-    print(f"Успешно решено: {successes} из 3 вариантов")
-    
-    if successes == 3:
-        print("✓ ВСЕ ЗАДАЧИ РЕШЕНЫ ПРАВИЛЬНО!")
+    # Проверяем результат
+    if abs(result['final_cost'] - expected) < 0.01:
+        print("✓ РЕШЕНИЕ СОВПАДАЕТ С ОНЛАЙН-РЕШАТЕЛЕМ")
     else:
-        print("✗ ЕСТЬ ОШИБКИ В РЕШЕНИИ")
+        print(f"✗ ОТЛИЧИЕ: {abs(result['final_cost'] - expected):.2f}")
     
-    return successes == 3
+    # Выводим план
+    print("\nПлан распределения:")
+    total = 0
+    for i in range(result['plan'].shape[0]):
+        for j in range(result['plan'].shape[1]):
+            if result['plan'][i, j] > 1e-5:
+                print(f"  A{i+1} → B{j+1}: {result['plan'][i, j]:.1f}")
+                total += result['plan'][i, j]
+    
+    print(f"Всего перевезено: {total:.1f} единиц")
+    
+    return result['final_cost']
+
+
+# Основная программа
+def main():
+    print("ТРАНСПОРТНАЯ ЗАДАЧА")
+    print("Абстрактный решатель")
+    print("="*60)
+    
+    # Тестовые данные
+    test_cases = [
+        {
+            'num': 1,
+            'costs': [[9, 5, 10, 7], [11, 8, 5, 6], [7, 6, 5, 4], [6, 4, 3, 2]],
+            'supply': [70, 80, 90, 110],
+            'demand': [150, 40, 110, 50],
+            'expected': 1870
+        },
+        {
+            'num': 2,
+            'costs': [[5, 3, 4, 6, 4], [3, 4, 10, 5, 7], [4, 6, 9, 3, 4]],
+            'supply': [40, 20, 40],
+            'demand': [25, 10, 20, 30, 15],
+            'expected': 340
+        },
+        {
+            'num': 3,
+            'costs': [[5, 4, 3, 2], [2, 3, 5, 6], [3, 2, 4, 3], [4, 1, 2, 4]],
+            'supply': [120, 60, 80, 140],
+            'demand': [100, 140, 100, 60],
+            'expected': 800
+        }
+    ]
+    
+    # Тестируем оба метода
+    for method in ['minimal_cost']:  # Только минимальная стоимость, как в онлайн-решателе
+        print(f"\n{'='*60}")
+        print(f"МЕТОД: {method.upper()}")
+        print('='*60)
+        
+        results = []
+        for test in test_cases:
+            cost = print_result(
+                test['num'], 
+                test['costs'], 
+                test['supply'], 
+                test['demand'], 
+                test['expected'],
+                method
+            )
+            results.append((test['num'], cost, test['expected']))
+        
+        # Итоги для этого метода
+        print(f"\n{'='*60}")
+        print(f"ИТОГИ ДЛЯ МЕТОДА {method.upper()}:")
+        print('-'*60)
+        
+        success_count = 0
+        for num, actual, expected in results:
+            if abs(actual - expected) < 0.01:
+                print(f"✓ Вариант {num}: {actual:.2f} (ожидалось {expected:.2f})")
+                success_count += 1
+            else:
+                print(f"✗ Вариант {num}: {actual:.2f} (ожидалось {expected:.2f})")
+        
+        print(f"\nУспешно решено: {success_count} из {len(test_cases)}")
+        
+        if success_count == len(test_cases):
+            print("\n✓ ВСЕ ЗАДАЧИ РЕШЕНЫ ПРАВИЛЬНО!")
+        else:
+            print("\n✗ ЕСТЬ ОШИБКИ В РЕШЕНИИ")
 
 
 if __name__ == "__main__":
-    success = test_all_variants()
-    exit(0 if success else 1)
+    main()
