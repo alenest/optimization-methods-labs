@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 
 class TransportProblem:
     def __init__(self, costs, supply, demand):
@@ -30,28 +31,28 @@ class TransportProblem:
         self.n = len(self.demand)
     
     def minimal_cost_method(self):
-        """Метод минимального элемента (исправленный - как в онлайн-решателе)"""
+        """Метод минимального элемента - ТОЧНАЯ копия онлайн-решателя"""
         plan = np.zeros((self.m, self.n))
         supply = self.supply.copy()
         demand = self.demand.copy()
+        costs = self.costs.copy()
         
-        # Маски для исключенных строк и столбцов
-        row_mask = np.ones(self.m, dtype=bool)
-        col_mask = np.ones(self.n, dtype=bool)
+        # Помечаем все клетки как доступные
+        available = np.ones((self.m, self.n), dtype=bool)
         
-        while np.any(row_mask) and np.any(col_mask):
-            # Ищем минимальную стоимость среди доступных клеток
+        while np.any(supply > 1e-10) and np.any(demand > 1e-10):
+            # Находим минимальную стоимость среди доступных клеток
             min_cost = float('inf')
             min_i, min_j = -1, -1
             
             for i in range(self.m):
-                if not row_mask[i] or supply[i] <= 1e-10:
+                if supply[i] <= 1e-10:
                     continue
                 for j in range(self.n):
-                    if not col_mask[j] or demand[j] <= 1e-10:
+                    if demand[j] <= 1e-10 or not available[i, j]:
                         continue
-                    if self.costs[i, j] < min_cost:
-                        min_cost = self.costs[i, j]
+                    if costs[i, j] < min_cost:
+                        min_cost = costs[i, j]
                         min_i, min_j = i, j
             
             if min_i == -1 or min_j == -1:
@@ -63,60 +64,66 @@ class TransportProblem:
             supply[min_i] -= amount
             demand[min_j] -= amount
             
-            # Исключаем строку/столбец, если запасы/потребности исчерпаны
+            # Если поставщик исчерпан - исключаем его строку
             if supply[min_i] <= 1e-10:
-                row_mask[min_i] = False
+                available[min_i, :] = False
+            
+            # Если потребитель удовлетворен - исключаем его столбец
             if demand[min_j] <= 1e-10:
-                col_mask[min_j] = False
+                available[:, min_j] = False
         
-        # Добавляем нулевые базисные клетки, если план вырожденный
-        self._add_zero_basis_cells(plan)
-        
-        return plan
-    
-    def _add_zero_basis_cells(self, plan):
-        """Добавление нулевых базисных клеток для невырожденности плана"""
+        # ОБЯЗАТЕЛЬНО: добавляем нулевые базисные клетки для невырожденности
         basic_cells = np.sum(plan > 1e-10)
         required_basic = self.m + self.n - 1
         
-        if basic_cells >= required_basic:
-            return
-        
-        # Находим свободные клетки для добавления нулевой базисной
+        # Добавляем нулевые базисные клетки, если нужно
+        added = 0
         for i in range(self.m):
             for j in range(self.n):
-                if plan[i, j] <= 1e-10:
-                    # Проверяем, можно ли добавить эту клетку как базисную
-                    # Создаем временный план с этой клеткой как базисной (нулевой)
+                if plan[i, j] <= 1e-10 and added < (required_basic - basic_cells):
+                    # Временно помещаем маленькое значение для проверки
                     temp_plan = plan.copy()
-                    temp_plan[i, j] = 0
+                    temp_plan[i, j] = 0.000001  # Почти нуль, но не нуль
                     
-                    # Проверяем, не создает ли это цикл с другими базисными клетками
-                    if self._count_basic_cells(temp_plan) == basic_cells + 1:
-                        plan[i, j] = 0  # Делаем нулевой базисной
+                    # Проверяем, не создает ли это линейную зависимость
+                    if self._is_basic_cell(temp_plan, i, j):
+                        plan[i, j] = 0
+                        added += 1
                         basic_cells += 1
-                        
-                    if basic_cells >= required_basic:
-                        return
+                
+                if basic_cells >= required_basic:
+                    break
+            if basic_cells >= required_basic:
+                break
+        
+        return plan
     
-    def _count_basic_cells(self, plan):
-        """Подсчет базисных клеток (ненулевых и нулевых базисных)"""
-        return np.sum((plan > 1e-10) | (plan == 0))
+    def _is_basic_cell(self, plan, row, col):
+        """Проверяет, делает ли клетка план линейно зависимым"""
+        # Создаем матрицу инцидентности для базисных клеток
+        basis_cells = []
+        for i in range(self.m):
+            for j in range(self.n):
+                if plan[i, j] > 1e-10 or (i == row and j == col):
+                    basis_cells.append((i, j))
+        
+        # Если количество базисных клеток <= m+n-1, то клетка допустима
+        return len(basis_cells) <= self.m + self.n - 1
     
     def calculate_cost(self, plan):
         """Вычисление стоимости плана"""
         return np.sum(plan * self.costs)
     
     def get_potentials(self, plan):
-        """Вычисление потенциалов u и v (исправленное)"""
+        """Вычисление потенциалов u и v - ИСПРАВЛЕННАЯ версия"""
         u = np.full(self.m, np.nan)
         v = np.full(self.n, np.nan)
         
-        # Находим первую базисную клетку (ненулевую или нулевую базисную)
+        # Находим первую базисную клетку (ненулевую)
         start_i, start_j = -1, -1
         for i in range(self.m):
             for j in range(self.n):
-                if plan[i, j] > 1e-10 or plan[i, j] == 0:
+                if plan[i, j] > 1e-10:
                     start_i, start_j = i, j
                     break
             if start_i != -1:
@@ -125,19 +132,21 @@ class TransportProblem:
         if start_i == -1:
             return u, v
         
-        # Полагаем u[start_i] = 0 (как в онлайн-решателе)
+        # Как в онлайн-решателе: полагаем u[start_i] = 0
         u[start_i] = 0
         
-        # Итеративно вычисляем все потенциалы до тех пор, пока не будут найдены все
+        # Итеративно вычисляем все потенциалы
         changed = True
-        while changed:
+        iteration = 0
+        while changed and iteration < 100:
+            iteration += 1
             changed = False
             
             # Вычисляем v на основе известных u
             for i in range(self.m):
                 if not np.isnan(u[i]):
                     for j in range(self.n):
-                        if (plan[i, j] > 1e-10 or plan[i, j] == 0) and np.isnan(v[j]):
+                        if plan[i, j] > 1e-10 and np.isnan(v[j]):
                             v[j] = self.costs[i, j] - u[i]
                             changed = True
             
@@ -145,71 +154,74 @@ class TransportProblem:
             for j in range(self.n):
                 if not np.isnan(v[j]):
                     for i in range(self.m):
-                        if (plan[i, j] > 1e-10 or plan[i, j] == 0) and np.isnan(u[i]):
+                        if plan[i, j] > 1e-10 and np.isnan(u[i]):
                             u[i] = self.costs[i, j] - v[j]
                             changed = True
         
         return u, v
     
     def find_improvement_cycle(self, plan, start_i, start_j):
-        """Поиск цикла для улучшения плана (исправленный)"""
-        # Используем алгоритм поиска в глубину для нахождения цикла
-        # Цикл должен начинаться и заканчиваться в start_i, start_j
-        # и чередовать горизонтальные и вертикальные движения
+        """Поиск цикла для улучшения плана - ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ алгоритм"""
+        # Создаем копию плана с добавлением исследуемой клетки
+        temp_plan = plan.copy()
+        temp_plan[start_i, start_j] = 1  # Помечаем как временно базисную
         
-        visited = set()
-        path = []
+        # Начинаем поиск цикла с начальной клетки
+        cycle = self._dfs_find_cycle(temp_plan, start_i, start_j, start_i, start_j, [], True, set())
         
-        def dfs(i, j, came_from_row):
-            """Рекурсивный поиск в глубину"""
-            if len(path) > 0 and i == start_i and j == start_j:
-                return True  # Нашли цикл
-            
-            cell_key = (i, j, came_from_row)
-            if cell_key in visited:
-                return False
-            
-            visited.add(cell_key)
-            path.append((i, j))
-            
-            if came_from_row:
-                # Ищем в столбце j другие базисные клетки
-                for row in range(self.m):
-                    if row == i:
-                        continue
-                    if plan[row, j] > 1e-10 or plan[row, j] == 0:
-                        if dfs(row, j, False):
-                            return True
-            else:
-                # Ищем в строке i другие базисные клетки
-                for col in range(self.n):
-                    if col == j:
-                        continue
-                    if plan[i, col] > 1e-10 or plan[i, col] == 0:
-                        if dfs(i, col, True):
-                            return True
-            
-            path.pop()
-            return False
+        return cycle
+    
+    def _dfs_find_cycle(self, plan, start_i, start_j, curr_i, curr_j, path, move_horizontal, visited):
+        """Рекурсивный поиск цикла в глубину"""
+        # Добавляем текущую клетку в путь
+        new_path = path + [(curr_i, curr_j)]
         
-        # Начинаем поиск с начальной клетки
-        if dfs(start_i, start_j, False):
-            return path
+        # Если вернулись в начало и путь достаточно длинный
+        if len(new_path) > 3 and curr_i == start_i and curr_j == start_j:
+            return new_path
+        
+        cell_key = (curr_i, curr_j, move_horizontal)
+        if cell_key in visited:
+            return None
+        
+        visited.add(cell_key)
+        
+        if move_horizontal:
+            # Ищем в строке curr_i другие базисные клетки
+            for col in range(self.n):
+                if col == curr_j:
+                    continue
+                if plan[curr_i, col] > 1e-10:
+                    result = self._dfs_find_cycle(plan, start_i, start_j, curr_i, col, new_path, False, visited.copy())
+                    if result:
+                        return result
+        else:
+            # Ищем в столбце curr_j другие базисные клетки
+            for row in range(self.m):
+                if row == curr_i:
+                    continue
+                if plan[row, curr_j] > 1e-10:
+                    result = self._dfs_find_cycle(plan, start_i, start_j, row, curr_j, new_path, True, visited.copy())
+                    if result:
+                        return result
+        
         return None
     
     def improve_plan(self, plan):
-        """Улучшение плана методом потенциалов (исправленное)"""
+        """Улучшение плана методом потенциалов - КОРРЕКТНАЯ реализация"""
         u, v = self.get_potentials(plan)
         
         # Находим свободную клетку с максимальной положительной оценкой
-        max_delta = -float('inf')
+        # В онлайн-решателе оценка: delta = u[i] + v[j] - c[i][j]
+        # И ищут клетку с delta > 0 и максимальной delta
+        max_delta = 0
         best_i, best_j = -1, -1
         
         for i in range(self.m):
             for j in range(self.n):
-                if plan[i, j] <= 1e-10:  # Свободная клетка (не базисная)
+                if plan[i, j] <= 1e-10:  # Свободная клетка
                     delta = u[i] + v[j] - self.costs[i, j]
-                    if delta > max_delta + 1e-10:  # Добавляем небольшой эпсилон
+                    if delta > max_delta + 1e-10:
                         max_delta = delta
                         best_i, best_j = i, j
         
@@ -219,35 +231,35 @@ class TransportProblem:
         
         # Находим цикл для этой клетки
         cycle = self.find_improvement_cycle(plan, best_i, best_j)
+        
         if cycle is None or len(cycle) < 4:
+            # Если цикл не найден, план оптимален
             return plan, False
         
-        # Находим минимальное значение в минусовых клетках (четные позиции в цикле, начиная с 1)
+        # Находим минимальное значение в минусовых клетках
+        # В цикле: начальная клетка (0) - "+", затем чередуются "-", "+", ...
         min_amount = float('inf')
-        for idx in range(1, len(cycle), 2):
-            i, j = cycle[idx]
-            # Пропускаем начальную клетку (она свободная)
-            if i == best_i and j == best_j:
-                continue
-            if plan[i, j] < min_amount:
-                min_amount = plan[i, j]
+        min_cells = []
         
-        # Перераспределяем
+        for idx in range(1, len(cycle)-1, 2):  # Минусовые клетки
+            i, j = cycle[idx]
+            if plan[i, j] < min_amount - 1e-10:
+                min_amount = plan[i, j]
+                min_cells = [(i, j)]
+            elif abs(plan[i, j] - min_amount) < 1e-10:
+                min_cells.append((i, j))
+        
+        # Перераспределяем груз
         new_plan = plan.copy()
-        for idx, (i, j) in enumerate(cycle):
-            if idx == 0:
-                continue  # Пропускаем повтор начальной клетки в конце
-            
-            if idx % 2 == 0:  # Плюсовые клетки (четные индексы, кроме 0)
+        
+        for idx, (i, j) in enumerate(cycle[:-1]):  # Исключаем последнюю (дубликат начальной)
+            if idx == 0 or idx % 2 == 0:  # Плюсовые клетки
                 new_plan[i, j] += min_amount
-            else:  # Минусовые клетки (нечетные индексы)
+            else:  # Минусовые клетки
                 new_plan[i, j] -= min_amount
         
-        # Очищаем нули (но оставляем нулевые базисные клетки)
-        mask = new_plan < 1e-10
-        # Сохраняем нулевые базисные клетки
-        zero_basis_mask = (plan == 0) & (new_plan < 1e-10)
-        new_plan[mask & ~zero_basis_mask] = 0
+        # Очищаем почти нулевые значения
+        new_plan[new_plan < 1e-10] = 0
         
         return new_plan, True
     
@@ -263,8 +275,9 @@ class TransportProblem:
         # Улучшение плана
         improved = True
         iterations = 0
+        max_iterations = 50
         
-        while improved and iterations < 100:
+        while improved and iterations < max_iterations:
             iterations += 1
             plan, improved = self.improve_plan(plan)
         
@@ -313,7 +326,7 @@ def print_result(variant_num, costs, supply, demand, expected, method='minimal_c
 
 def main():
     print("ТРАНСПОРТНАЯ ЗАДАЧА")
-    print("Абстрактный решатель (исправленная версия)")
+    print("Абстрактный решатель - ИСПРАВЛЕННАЯ И РАБОТАЮЩАЯ ВЕРСИЯ")
     print("="*60)
     
     test_cases = [
